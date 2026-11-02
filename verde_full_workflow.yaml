@@ -1,0 +1,194 @@
+# ============================================================================
+# VERDE DB — Full Photophysics Workflow
+# ============================================================================
+# Complete photophysical characterization: ground state, excited states,
+# absorption (TD-DFT), oxidation (cation), and reduction (anion).
+# Conformer search via CREST + PM7 reoptimization.
+#
+# Neutral molecule pipeline (charge 0, mult 1).
+# Adjust charge/multiplicity for your system.
+# ============================================================================
+
+project:
+  name: "verde_crest_workflow"
+  description: "VERDE DB workflow — CREST conformers + full photophysics"
+  output_dir: "verde_crest_run"
+  xyz_dir: "xyz"
+
+openbabel:
+  module: "OpenBabel/2.4.1"    # Set to null if obabel is already in PATH
+  use_inchikey: true
+
+conformer_search:
+  enabled: true
+  num_conformers: 5
+  backend: "crest"
+  allow_fallback: true
+  method: "PM7"
+  rmsd_cutoff: 0.5
+  use_rdkit: false
+  rdkit_optimize: false
+  crest:
+    executable: "crest"
+    xtb_executable: "xtb"
+    gfn: "gfn2"
+    solvent: null
+    threads: 16
+    ewin: 6.0
+    rthr: 0.125
+    ethr: 0.05
+    mdlen: 20
+    mddump: 100
+    mdtemp: 300
+    nci: false
+    entropy: false
+    cbonds: []
+    reoptimize_pm7: true
+    gaussian_route: "#p PM7 opt"
+  slurm:
+    cores: 8
+    memory: "64GB"
+    time: "4-00:00:00"
+    partition: "short"
+  gaussian:
+    route: "#p PM7 opt"
+    charge: 0
+    multiplicity: 1
+
+calculations:
+  # Ground state optimization in vacuum (starting point for everything)
+  s0_opt_freq_vac:
+    enabled: true
+    depends_on: null
+    gaussian:
+      route: "#p M06/6-31+G(d,p) opt freq=noraman int=ultrafine"
+      charge: 0
+      multiplicity: 1
+      oldchk: null
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # Ground state optimization in solvent
+  s0_opt_freq_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_vac"
+    gaussian:
+      route: "#p M06/6-31+G(d,p) opt freq=noraman scrf=(iefpcm,solvent=acetonitrile) int=ultrafine"
+      charge: 0
+      multiplicity: 1
+      oldchk: "s0_opt_freq_vac"
+      geom: "Checkpoint"
+      guess: "Read"
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # TD-DFT absorption spectrum
+  s0_sp_tddft_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_solv"
+    gaussian:
+      route: "#p M06/6-31+G(d,p) td=(50-50,nstates=20) scrf=(iefpcm,solvent=acetonitrile) int=ultrafine"
+      charge: 0
+      multiplicity: 1
+      oldchk: "s0_opt_freq_solv"
+      geom: "Checkpoint"
+      guess: "Read"
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # S1 excited state optimization
+  s1_opt_freq_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_vac"
+    gaussian:
+      route: "#p M06/6-31+G(d,p) td=(nstates=5,root=1) opt=(maxcycles=250) freq=noraman scrf=(solvent=acetonitrile)"
+      charge: 0
+      multiplicity: 1
+      oldchk: "s0_opt_freq_vac"
+      geom: "Checkpoint"
+      guess: null
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # T1 triplet state optimization
+  t1_opt_freq_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_vac"
+    gaussian:
+      route: "#p UM06/6-31+G(d,p) opt=(calcfc,maxcycles=250) freq=noraman scrf=(solvent=acetonitrile) scf=(xqc,maxcycle=512) int=ultrafine"
+      charge: 0
+      multiplicity: 3
+      oldchk: "s0_opt_freq_vac"
+      geom: "Checkpoint"
+      guess: "Mix"
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # Radical cation (oxidation)
+  cat_opt_freq_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_vac"
+    gaussian:
+      route: "#p UM06/6-31+G(d,p) opt=(calcfc,maxcycles=250) freq=noraman scrf=(solvent=acetonitrile) scf=(xqc,maxcycle=512) int=ultrafine"
+      charge: 1
+      multiplicity: 2
+      oldchk: "s0_opt_freq_vac"
+      geom: "Checkpoint"
+      guess: "Mix"
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+  # Radical anion (reduction)
+  an_opt_freq_solv:
+    enabled: true
+    depends_on: "s0_opt_freq_vac"
+    gaussian:
+      route: "#p UM06/6-31+G(d,p) opt=(calcfc,maxcycles=250) freq=noraman scrf=(solvent=acetonitrile) scf=(xqc,maxcycle=512,conver=6) int=ultrafine"
+      charge: -1
+      multiplicity: 2
+      oldchk: "s0_opt_freq_vac"
+      geom: "Checkpoint"
+      guess: "Mix"
+    slurm:
+      cores: 8
+      memory: "64GB"
+      time: "4-00:00:00"
+      partition: "short"
+
+slurm:
+  gaussian_module: "gaussian/g16"    # Use module system (recommended)
+  gaussian_root: null                # Or set this if your cluster has no modules
+  scratch: "/scratch/$USER"
+  email: "user@university.edu"
+  mail_type: "END,FAIL"
+  account: null
+  constraint: null
+  exclude_nodes: null
+  max_concurrent_jobs: 100
+  sbatch_cmd: "sbatch"
+
+analysis:
+  extract_energies: true
+  extract_frequencies: true
+  extract_orbitals: true
+  generate_report: true
+  compress_logs: false
+  generate_fchk: false
