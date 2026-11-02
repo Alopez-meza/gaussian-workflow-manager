@@ -1,0 +1,34 @@
+# Workflow outputs
+workflow_run/
+verde_crest_run*/
+*_run/
+
+# Gaussian files
+*.chk
+*.fchk
+*.rwf
+*.log
+*.out
+*.err
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Logs
+workflow_*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
